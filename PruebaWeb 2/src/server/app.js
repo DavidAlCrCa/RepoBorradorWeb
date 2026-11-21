@@ -16,9 +16,9 @@ import {
   roundMoney,
   roundQuantity
 } from "./domain.js";
-
+ 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
+ 
 const idSchema = z.coerce.number().int().positive();
 const moneySchema = z.coerce.number().finite().nonnegative();
 const paymentMethods = ["CASH", "CARD", "BITCOIN", "CHIVO"];
@@ -40,7 +40,22 @@ const purchaseSchema = z.object({
   path: ["dueAt"],
   message: "El vencimiento no puede ser anterior a la fecha de compra."
 });
-
+ 
+// NUEVO: validación para crear artículos de inventario
+const inventoryTypes = ["INGREDIENT", "RESALE"];
+const inventoryItemSchema = z.object({
+  branchId: idSchema,
+  type: z.enum(inventoryTypes),
+  name: z.string().trim().min(2).max(140),
+  unit: z.string().trim().min(1).max(20),
+  quantity: z.coerce.number().nonnegative().max(1_000_000),
+  minimumStock: z.coerce.number().nonnegative().max(1_000_000).default(0),
+  price: z.coerce.number().positive().max(100_000).optional()
+}).refine((item) => item.type !== "RESALE" || item.price !== undefined, {
+  path: ["price"],
+  message: "Indique el precio de venta del producto empacado."
+});
+ 
 const payrollSchema = z.object({
   branchId: idSchema,
   periodStart: z.string().date(),
@@ -62,7 +77,7 @@ const payrollSchema = z.object({
   const isQuincena = sameMonth
     && ((start.getUTCDate() === 1 && end.getUTCDate() === 15)
       || (start.getUTCDate() === 16 && end.getUTCDate() === lastDay));
-
+ 
   if (!isQuincena) {
     context.addIssue({
       code: "custom",
@@ -71,7 +86,7 @@ const payrollSchema = z.object({
     });
   }
 });
-
+ 
 function parseOrRespond(schema, input, res) {
   const result = schema.safeParse(input);
   if (!result.success) {
@@ -86,7 +101,7 @@ function parseOrRespond(schema, input, res) {
   }
   return result.data;
 }
-
+ 
 function requireId(value, res, label = "identificador") {
   const id = idSchema.safeParse(value);
   if (!id.success) {
@@ -95,7 +110,7 @@ function requireId(value, res, label = "identificador") {
   }
   return id.data;
 }
-
+ 
 function handleError(error, res) {
   if (error.code === "23505") {
     return res.status(409).json({ error: "El registro ya existe o duplica un dato único." });
@@ -112,11 +127,20 @@ function handleError(error, res) {
   console.error(error);
   return res.status(500).json({ error: "Ocurrió un error interno. Intente de nuevo." });
 }
-
+ 
 function fail(statusCode, message) {
   return Object.assign(new Error(message), { statusCode });
 }
-
+ 
+// NUEVO: solo ADMIN y MANAGER pueden modificar el inventario
+function requireManager(req, res) {
+  if (!["ADMIN", "MANAGER"].includes(req.user.role)) {
+    res.status(403).json({ error: "No tiene permisos para modificar el inventario." });
+    return false;
+  }
+  return true;
+}
+ 
 async function createAdminUser() {
   const email = process.env.ADMIN_EMAIL;
   const password = process.env.ADMIN_PASSWORD;
@@ -126,24 +150,25 @@ async function createAdminUser() {
   if (password.length < 12) {
     throw new Error("ADMIN_PASSWORD debe tener al menos 12 caracteres.");
   }
-
+ 
   const existing = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
   if (existing.rowCount > 0) return;
-
+ 
   const hash = await bcrypt.hash(password, 12);
   await pool.query(
     "INSERT INTO users (email, password_hash, full_name, role) VALUES ($1, $2, $3, 'ADMIN')",
     [email, hash, "Administración Orígenes"]
   );
 }
-
+ 
 export function createApp({ jwtSecret, appOrigin }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(helmet());
-  app.use(cors({ origin: appOrigin, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "Authorization"] }));
+  // CAMBIO: se agregó "DELETE" a los métodos permitidos
+  app.use(cors({ origin: appOrigin, methods: ["GET", "POST", "DELETE", "OPTIONS"], allowedHeaders: ["Content-Type", "Authorization"] }));
   app.use(express.json({ limit: "100kb" }));
-
+ 
   const api = express.Router();
   const authLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -157,7 +182,7 @@ export function createApp({ jwtSecret, appOrigin }) {
     standardHeaders: "draft-8",
     legacyHeaders: false
   });
-
+ 
   api.get("/health", async (_req, res) => {
     try {
       await pool.query("SELECT 1");
@@ -166,7 +191,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.post("/auth/login", authLimit, async (req, res) => {
     try {
       const data = parseOrRespond(
@@ -191,9 +216,9 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.use(authenticate(jwtSecret));
-
+ 
   api.get("/auth/me", async (req, res) => {
     res.json({
       id: Number(req.user.sub),
@@ -201,7 +226,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       role: req.user.role
     });
   });
-
+ 
   api.post("/auth/password", passwordChangeLimit, async (req, res) => {
     try {
       const data = parseOrRespond(
@@ -216,7 +241,7 @@ export function createApp({ jwtSecret, appOrigin }) {
         res
       );
       if (!data) return;
-
+ 
       const result = await pool.query(
         "SELECT id, email, password_hash, full_name, role, session_version FROM users WHERE id = $1 AND active = TRUE",
         [req.user.sub]
@@ -225,7 +250,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       if (!user || !(await bcrypt.compare(data.currentPassword, user.password_hash))) {
         return res.status(401).json({ error: "La contraseña actual es incorrecta." });
       }
-
+ 
       const passwordHash = await bcrypt.hash(data.newPassword, 12);
       const updated = await pool.query(
         `UPDATE users
@@ -237,13 +262,13 @@ export function createApp({ jwtSecret, appOrigin }) {
       if (!updated.rowCount) {
         return res.status(409).json({ error: "La contraseña cambió en otra sesión. Vuelve a iniciar sesión." });
       }
-
+ 
       res.json({ token: createToken(updated.rows[0], jwtSecret) });
     } catch (error) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/branches", async (_req, res) => {
     try {
       const result = await pool.query(
@@ -254,7 +279,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/dashboard", async (req, res) => {
     try {
       const branchId = requireId(req.query.branchId, res, "sucursal");
@@ -303,7 +328,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/products", async (_req, res) => {
     try {
       const result = await pool.query(
@@ -322,7 +347,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/inventory", async (req, res) => {
     try {
       const branchId = requireId(req.query.branchId, res, "sucursal");
@@ -347,7 +372,104 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
+  // NUEVO: crear artículo (insumo o producto empacado).
+  // Crea el saldo en todas las sucursales: la existencia inicial va en la
+  // sucursal seleccionada y las demás empiezan en 0.
+  api.post("/inventory", async (req, res) => {
+    if (!requireManager(req, res)) return;
+    const data = parseOrRespond(inventoryItemSchema, req.body, res);
+    if (!data) return;
+ 
+    try {
+      const item = await inTransaction(async (client) => {
+        let created;
+ 
+        if (data.type === "INGREDIENT") {
+          // Si existía uno eliminado con el mismo nombre, se reactiva.
+          created = await client.query(
+            `INSERT INTO ingredients (name, unit, minimum_stock) VALUES ($1, $2, $3)
+             ON CONFLICT (name) DO UPDATE
+               SET unit = EXCLUDED.unit, minimum_stock = EXCLUDED.minimum_stock, active = TRUE
+               WHERE ingredients.active = FALSE
+             RETURNING id`,
+            [data.name, data.unit, data.minimumStock]
+          );
+        } else {
+          // SKU automático: EMP-001, EMP-002, ...
+          const next = await client.query(
+            `SELECT COALESCE(MAX(SUBSTRING(sku FROM 5)::INTEGER), 0) + 1 AS n
+             FROM products WHERE sku ~ '^EMP-[0-9]+$'`
+          );
+          const sku = `EMP-${String(next.rows[0].n).padStart(3, "0")}`;
+          created = await client.query(
+            `INSERT INTO products (sku, name, category, price, product_type)
+             VALUES ($1, $2, 'Empacados', $3, 'RESALE')
+             ON CONFLICT (name) DO UPDATE SET price = EXCLUDED.price, active = TRUE
+               WHERE products.active = FALSE AND products.product_type = 'RESALE'
+             RETURNING id`,
+            [sku, data.name, data.price]
+          );
+        }
+ 
+        // Si el INSERT no devolvió fila, ya existe un artículo ACTIVO con ese nombre.
+        if (!created.rowCount) throw fail(409, "Ya existe un artículo activo con ese nombre.");
+        const id = created.rows[0].id;
+ 
+        const column = data.type === "INGREDIENT" ? "ingredient_id" : "product_id";
+        await client.query(
+          `INSERT INTO inventory_balances (branch_id, ${column}, quantity)
+           SELECT b.id, $1::INTEGER, CASE WHEN b.id = $2 THEN $3::NUMERIC ELSE 0 END
+           FROM branches b WHERE b.active = TRUE
+           ON CONFLICT (branch_id, ${column}) WHERE ${column} IS NOT NULL
+           DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW()`,
+          [id, data.branchId, data.quantity]
+        );
+        return { id, type: data.type };
+      });
+      res.status(201).json(item);
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
+  // NUEVO: eliminar artículo = desactivarlo (active = FALSE).
+  // No se borra la fila para conservar el historial de ventas y compras.
+  api.delete("/inventory/:type/:id", async (req, res) => {
+    if (!requireManager(req, res)) return;
+    const type = z.enum(inventoryTypes).safeParse(req.params.type);
+    if (!type.success) return res.status(400).json({ error: "El tipo de artículo no es válido." });
+    const id = requireId(req.params.id, res, "artículo");
+    if (!id) return;
+ 
+    try {
+      let result;
+      if (type.data === "INGREDIENT") {
+        // No se puede quitar un insumo que usa la receta de un producto activo.
+        const used = await pool.query(
+          `SELECT p.name FROM recipe_items ri
+           JOIN products p ON p.id = ri.product_id
+           WHERE ri.ingredient_id = $1 AND p.active = TRUE
+           ORDER BY p.name LIMIT 3`,
+          [id]
+        );
+        if (used.rowCount) {
+          throw fail(409, `No se puede eliminar: forma parte de la receta de ${used.rows.map((row) => row.name).join(", ")}.`);
+        }
+        result = await pool.query("UPDATE ingredients SET active = FALSE WHERE id = $1 AND active = TRUE", [id]);
+      } else {
+        result = await pool.query(
+          "UPDATE products SET active = FALSE WHERE id = $1 AND product_type = 'RESALE' AND active = TRUE",
+          [id]
+        );
+      }
+      if (!result.rowCount) throw fail(404, "El artículo no existe o ya fue eliminado.");
+      res.json({ deleted: true });
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
   api.get("/suppliers", async (_req, res) => {
     try {
       const result = await pool.query(
@@ -358,7 +480,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/purchases", async (req, res) => {
     try {
       const branchId = requireId(req.query.branchId, res, "sucursal");
@@ -379,7 +501,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.post("/purchases", async (req, res) => {
     const data = parseOrRespond(purchaseSchema, req.body, res);
     if (!data) return;
@@ -437,7 +559,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/cash/status", async (req, res) => {
     try {
       const branchId = requireId(req.query.branchId, res, "sucursal");
@@ -458,7 +580,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.post("/cash/open", async (req, res) => {
     const data = parseOrRespond(z.object({
       branchId: idSchema,
@@ -476,7 +598,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.post("/cash/close", async (req, res) => {
     const data = parseOrRespond(z.object({
       branchId: idSchema,
@@ -527,7 +649,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.post("/sales", async (req, res) => {
     const data = parseOrRespond(z.object({
       branchId: idSchema,
@@ -539,7 +661,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       })).min(1)
     }), req.body, res);
     if (!data) return;
-
+ 
     try {
       const sale = await inTransaction(async (client) => {
         const shift = await client.query(
@@ -548,7 +670,7 @@ export function createApp({ jwtSecret, appOrigin }) {
           [data.branchId]
         );
         if (!shift.rows[0]) throw fail(409, "Abra la caja de la sucursal antes de registrar ventas.");
-
+ 
         const productIds = [...new Set(data.items.map((item) => item.productId))];
         const products = await client.query(
           `SELECT id, sku, name, price, product_type FROM products
@@ -568,7 +690,7 @@ export function createApp({ jwtSecret, appOrigin }) {
           };
         });
         const totals = calculateSaleTotals(saleLines);
-
+ 
         const recipeProducts = saleLines.filter((item) => item.productType === "RECIPE");
         const resaleProducts = saleLines.filter((item) => item.productType === "RESALE");
         if (recipeProducts.length) {
@@ -615,7 +737,7 @@ export function createApp({ jwtSecret, appOrigin }) {
           );
           if (!updated.rowCount) throw fail(409, `Inventario insuficiente para ${item.productName}.`);
         }
-
+ 
         const header = await client.query(
           `INSERT INTO sales
              (branch_id, cash_shift_id, cashier_id, payment_method, subtotal, tax, total)
@@ -659,7 +781,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/employees", async (req, res) => {
     try {
       const branchId = requireId(req.query.branchId, res, "sucursal");
@@ -675,7 +797,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.post("/employees", async (req, res) => {
     const data = parseOrRespond(z.object({
       branchId: idSchema,
@@ -696,7 +818,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.get("/payroll", async (_req, res) => {
     try {
       const result = await pool.query(
@@ -712,7 +834,7 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   api.post("/payroll", async (req, res) => {
     const data = parseOrRespond(payrollSchema, req.body, res);
     if (!data) return;
@@ -748,10 +870,10 @@ export function createApp({ jwtSecret, appOrigin }) {
       handleError(error, res);
     }
   });
-
+ 
   app.use("/api", api);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Recurso API no encontrado." }));
-
+ 
   const webRoot = path.resolve(__dirname, "../../dist");
   app.use(express.static(webRoot, { index: false }));
   app.get("/{*path}", (_req, res, next) => {
@@ -759,11 +881,12 @@ export function createApp({ jwtSecret, appOrigin }) {
       if (error) next();
     });
   });
-
+ 
   app.use((error, _req, res, _next) => {
     handleError(error, res);
   });
   return app;
 }
-
+ 
 export { createAdminUser };
+ 

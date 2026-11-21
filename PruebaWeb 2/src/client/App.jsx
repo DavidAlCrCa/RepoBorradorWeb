@@ -24,10 +24,10 @@ import Purchases from "./pages/Purchases.jsx";
 import Cash from "./pages/Cash.jsx";
 import Payroll from "./pages/Payroll.jsx";
 import Security from "./pages/Security.jsx";
-
+ 
 const WorkspaceContext = createContext(null);
 export const useWorkspace = () => useContext(WorkspaceContext);
-
+ 
 const navigation = [
   { to: "/", label: "Resumen", icon: "01" },
   { to: "/pos", label: "Punto de venta", icon: "02" },
@@ -37,13 +37,13 @@ const navigation = [
   { to: "/nomina", label: "Personal y nómina", icon: "06" },
   { to: "/seguridad", label: "Seguridad", icon: "07" }
 ];
-
+ 
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
+ 
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
@@ -62,7 +62,7 @@ function Login({ onLogin }) {
       setBusy(false);
     }
   }
-
+ 
   return (
     <main className="login-shell">
       <Card className="login-card">
@@ -92,7 +92,7 @@ function Login({ onLogin }) {
     </main>
   );
 }
-
+ 
 function Shell({ user, branches, branchId, onBranchChange, onLogout }) {
   return (
     <div className="app-shell">
@@ -152,20 +152,20 @@ function Shell({ user, branches, branchId, onBranchChange, onLogout }) {
     </div>
   );
 }
-
+ 
 function Workspace() {
   const [user, setUser] = useState(null);
   const [branches, setBranches] = useState([]);
   const [branchId, setBranchId] = useState(Number(localStorage.getItem("origenes-branch")) || null);
   const [loading, setLoading] = useState(true);
-
+ 
   useEffect(() => {
     const token = localStorage.getItem("origenes-token");
     if (!token) {
       setLoading(false);
       return;
     }
-
+ 
     Promise.all([api("/auth/me"), api("/branches")])
       .then(([currentUser, branchList]) => {
         setUser(currentUser);
@@ -183,7 +183,7 @@ function Workspace() {
       })
       .finally(() => setLoading(false));
   }, []);
-
+ 
   async function acceptLogin(currentUser) {
     setUser(currentUser);
     try {
@@ -199,20 +199,20 @@ function Workspace() {
       throw error;
     }
   }
-
+ 
   function changeBranch(nextBranchId) {
     setBranchId(nextBranchId);
     localStorage.setItem("origenes-branch", nextBranchId);
   }
-
+ 
   function logout() {
     localStorage.removeItem("origenes-token");
     setUser(null);
     setBranches([]);
   }
-
+ 
   const context = useMemo(() => ({ branchId, user }), [branchId, user]);
-
+ 
   if (loading) {
     return <div className="loading-screen"><Spinner color="success" /><span>Preparando tu espacio…</span></div>;
   }
@@ -220,14 +220,15 @@ function Workspace() {
   if (!branches.length || !branchId) {
     return <Container className="py-5"><Alert color="warning">No hay sucursales activas configuradas.</Alert></Container>;
   }
-
+ 
   return (
     <WorkspaceContext.Provider value={context}>
       <Shell user={user} branches={branches} branchId={branchId} onBranchChange={changeBranch} onLogout={logout} />
     </WorkspaceContext.Provider>
   );
 }
-
+ 
 export default function App() {
   return <BrowserRouter><Workspace /></BrowserRouter>;
 }
+ 
