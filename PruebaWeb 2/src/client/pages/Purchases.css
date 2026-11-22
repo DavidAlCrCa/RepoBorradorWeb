@@ -1,0 +1,536 @@
+.prov-page {
+  padding: 1.25rem 1.5rem 2rem;
+  color: #1c2526;
+}
+
+.prov-loading {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 0;
+}
+
+.prov-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 430px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+/* ================= PANEL IZQUIERDO: FACTURA ================= */
+.invoice-panel {
+  background-color: #f3f4f4;
+  border-radius: 4px;
+  padding: 1.35rem 1.4rem 1.5rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  font-family: "Georgia", "Times New Roman", serif;
+}
+
+.invoice-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 500;
+  color: #1c2526;
+}
+
+.invoice-divider {
+  height: 1px;
+  background-color: #9ba5a5;
+  margin: 0.45rem 0 1.1rem;
+}
+
+.invoice-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+/* Caja superior Proveedor / Fecha / No. Factura */
+.invoice-top-box {
+  background-color: #a9dbe4;
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem 0.85rem;
+}
+
+.invoice-top-labels {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: #1c2526;
+  margin-bottom: 0.35rem;
+  padding: 0 0.25rem;
+}
+
+.invoice-top-inputs {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Caja central Insumo / Cantidad / Total */
+.invoice-items-box {
+  background-color: #a9dbe4;
+  border-radius: 6px;
+  padding: 0.7rem 0.75rem 0.85rem;
+}
+
+.invoice-items-header {
+  display: grid;
+  grid-template-columns: 1.35fr 1.05fr 0.75fr;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: #1c2526;
+  margin-bottom: 0.55rem;
+}
+
+.col-insumo-lbl {
+  padding-left: 2.1rem;
+}
+
+.col-cant-lbl {
+  padding-left: 0.35rem;
+}
+
+.col-total-lbl {
+  text-align: center;
+}
+
+.invoice-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.invoice-line-row {
+  display: grid;
+  grid-template-columns: 1.35fr 1.05fr 0.75fr;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Píldoras de selección / entrada */
+.pill-wrap {
+  height: 32px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  padding: 0 0.55rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.pill-supplier,
+.pill-insumo {
+  background-color: #169ef0;
+}
+
+.pill-insumo {
+  padding-left: 0.25rem;
+}
+
+.pill-date,
+.pill-invoice,
+.pill-cant {
+  background-color: #36c5d6;
+}
+
+.line-remove-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.line-remove-btn img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.pill-wrap .form-select,
+.pill-wrap .form-control {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0;
+  height: 100%;
+  min-width: 0;
+}
+
+.pill-wrap .form-select {
+  background-image: none !important;
+  padding-right: 1rem;
+  cursor: pointer;
+}
+
+.pill-wrap .form-select option {
+  color: #1c2526;
+  background-color: #ffffff;
+}
+
+.pill-wrap .form-control::placeholder {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.pill-date .form-control {
+  font-size: 0.72rem;
+}
+
+.cost-inline-input {
+  width: 44px;
+  flex: none !important;
+  text-align: right;
+  border-left: 1px solid rgba(255, 255, 255, 0.45) !important;
+  padding-left: 0.25rem !important;
+  margin-right: 0.85rem;
+}
+
+.pill-arrow {
+  position: absolute;
+  right: 0.45rem;
+  font-size: 0.72rem;
+  pointer-events: none;
+}
+
+.arrow-purple {
+  color: #5b3cc4;
+}
+
+.arrow-blue {
+  color: #1273de;
+}
+
+/* Cajita blanca de TOTAL por fila */
+.line-total-box {
+  height: 30px;
+  background-color: #ffffff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0.45rem;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1c2526;
+}
+
+.add-line-link {
+  margin-top: 0.65rem;
+  background: none;
+  border: none;
+  color: #145c66;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.add-line-link:hover {
+  text-decoration: underline;
+}
+
+/* Bloque inferior: botones Cancelar/Confirmar + Subtotal/Total con IVA */
+.invoice-bottom-box {
+  background-color: #a9dbe4;
+  border-radius: 6px;
+  padding: 0.85rem 0.75rem;
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.invoice-actions-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.img-action-banner {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  transition: transform 0.15s ease;
+}
+
+.img-action-banner:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.img-action-banner:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.img-action-banner img {
+  width: 100%;
+  height: 44px;
+  object-fit: fill;
+  display: block;
+}
+
+.banner-label {
+  position: absolute;
+  left: 34%;
+  color: #ffffff;
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.invoice-summary-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-left: 0.25rem;
+}
+
+.summary-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.summary-label {
+  font-size: 0.76rem;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: #1c2526;
+  line-height: 1.15;
+}
+
+.summary-value {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.92rem;
+  color: #162020;
+}
+
+/* ================= PANEL DERECHO: PROVEEDORES ================= */
+.suppliers-panel {
+  background-color: #f3f4f4;
+  border-radius: 4px;
+  padding: 1.35rem 1.6rem 1.75rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  font-family: "Georgia", "Times New Roman", serif;
+}
+
+.suppliers-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 500;
+  font-variant: small-caps;
+  color: #1c2526;
+}
+
+.suppliers-divider {
+  height: 1px;
+  background-color: #9ba5a5;
+  margin: 0.45rem 0 1rem;
+}
+
+.suppliers-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.suppliers-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+  max-width: 340px;
+}
+
+.suppliers-search-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.suppliers-search-input.form-control {
+  background-color: #bfbfbf !important;
+  border: none !important;
+  border-radius: 4px;
+  height: 30px;
+  font-size: 0.88rem;
+}
+
+.suppliers-filter-wrap {
+  position: relative;
+}
+
+.suppliers-filter-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.suppliers-filter-btn img {
+  height: 34px;
+  width: auto;
+  object-fit: contain;
+}
+
+.suppliers-filter-menu {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  background: #ffffff;
+  border: 1px solid #cbd2d9;
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  z-index: 20;
+  min-width: 185px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.suppliers-filter-menu button {
+  background: none;
+  border: none;
+  padding: 0.5rem 0.8rem;
+  text-align: left;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.suppliers-filter-menu button:hover,
+.suppliers-filter-menu button.active {
+  background-color: #e6f4f3;
+  color: #266b66;
+  font-weight: 600;
+}
+
+/* Tabla de proveedores estilo maqueta */
+.suppliers-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.suppliers-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 4px;
+}
+
+.suppliers-table thead th {
+  background-color: #368882;
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 0.88rem;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  position: relative;
+}
+
+.suppliers-table thead th:first-child {
+  border-top-left-radius: 6px;
+  width: 34%;
+}
+
+.suppliers-table thead th:nth-child(2) {
+  border-top-right-radius: 6px;
+}
+
+.suppliers-table thead th:nth-child(2)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  height: 60%;
+  width: 1.5px;
+  background-color: rgba(255, 255, 255, 0.8);
+}
+
+.suppliers-table thead th.col-prov-accion {
+  background-color: transparent;
+  width: 38px;
+}
+
+.suppliers-table tbody td.prov-cell {
+  background-color: #b8c2be;
+  color: #162020;
+  padding: 0.55rem 0.85rem;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.86rem;
+  height: 36px;
+  position: relative;
+}
+
+.suppliers-table tbody tr:nth-child(even) td.prov-cell {
+  background-color: #c7d1cc;
+}
+
+.suppliers-table tbody tr:last-child td.prov-cell {
+  background-color: #d3ddd6;
+}
+
+.suppliers-table tbody td.prov-cell:nth-child(2)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 15%;
+  height: 70%;
+  width: 1px;
+  background-color: rgba(255, 255, 255, 0.7);
+}
+
+.prov-action-cell {
+  background: transparent !important;
+  padding-left: 0.5rem;
+  text-align: center;
+}
+
+.prov-delete-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prov-delete-btn img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+@media (max-width: 1024px) {
+  .prov-layout {
+    grid-template-columns: 1fr;
+  }
+}

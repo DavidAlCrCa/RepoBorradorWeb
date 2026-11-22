@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Input, Spinner, Table } from "reactstrap";
 import { api } from "../api.js";
 import { useWorkspace } from "../App.jsx";
-import "./inventory.css";
+import "./Inventory.css";
  
 // Imágenes de Figma: carpeta public/img/ (se sirven desde la ruta /img/)
 const IMG = "/img";

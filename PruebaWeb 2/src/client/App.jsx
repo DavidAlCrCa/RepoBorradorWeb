@@ -24,6 +24,7 @@ import Purchases from "./pages/Purchases.jsx";
 import Cash from "./pages/Cash.jsx";
 import Payroll from "./pages/Payroll.jsx";
 import Security from "./pages/Security.jsx";
+import ProductRecipe from "./pages/ProductoRecipe.jsx";
  
 const WorkspaceContext = createContext(null);
 export const useWorkspace = () => useContext(WorkspaceContext);
@@ -31,11 +32,12 @@ export const useWorkspace = () => useContext(WorkspaceContext);
 const navigation = [
   { to: "/", label: "Resumen", icon: "01" },
   { to: "/pos", label: "Punto de venta", icon: "02" },
-  { to: "/inventario", label: "Inventario y recetas", icon: "03" },
-  { to: "/compras", label: "Compras y proveedores", icon: "04" },
-  { to: "/caja", label: "Caja y turnos", icon: "05" },
-  { to: "/nomina", label: "Personal y nómina", icon: "06" },
-  { to: "/seguridad", label: "Seguridad", icon: "07" }
+  { to: "/inventario", label: "Inventario", icon: "03" },
+  { to: "/recetas", label: "Recetas de productos", icon: "04" },
+  { to: "/compras", label: "Compras y proveedores", icon: "05" },
+  { to: "/caja", label: "Caja y turnos", icon: "06" },
+  { to: "/nomina", label: "Personal y nómina", icon: "07" },
+  { to: "/seguridad", label: "Seguridad", icon: "08" }
 ];
  
 function Login({ onLogin }) {
@@ -140,6 +142,7 @@ function Shell({ user, branches, branchId, onBranchChange, onLogout }) {
             <Route path="/" element={<Dashboard />} />
             <Route path="/pos" element={<Pos />} />
             <Route path="/inventario" element={<Inventory />} />
+            <Route path="/recetas" element={<ProductRecipe />} />
             <Route path="/compras" element={<Purchases />} />
             <Route path="/caja" element={<Cash />} />
             <Route path="/nomina" element={<Payroll />} />
