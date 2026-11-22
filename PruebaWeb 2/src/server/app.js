@@ -82,6 +82,17 @@ const newProductSchema = z.object({
   message: "No repita el mismo ingrediente en la receta."
 });
  
+// NUEVO: validación para crear proveedores
+const supplierSchema = z.object({
+  name: z.string().trim().min(2).max(160),
+  taxId: z.string().trim().max(30).default(""),
+  phone: z.string().trim().max(40).default(""),
+  email: z.string().trim().max(255).default("").refine(
+    (value) => value === "" || z.string().email().safeParse(value).success,
+    { message: "El correo no tiene un formato válido." }
+  )
+});
+ 
 const payrollSchema = z.object({
   branchId: idSchema,
   periodStart: z.string().date(),
@@ -158,10 +169,10 @@ function fail(statusCode, message) {
   return Object.assign(new Error(message), { statusCode });
 }
  
-// NUEVO: solo ADMIN y MANAGER pueden modificar el inventario
+// NUEVO: solo ADMIN y MANAGER pueden crear, editar o eliminar (inventario, recetas, proveedores)
 function requireManager(req, res) {
   if (!["ADMIN", "MANAGER"].includes(req.user.role)) {
-    res.status(403).json({ error: "No tiene permisos para modificar el inventario." });
+    res.status(403).json({ error: "No tiene permisos para realizar esta acción." });
     return false;
   }
   return true;
@@ -617,13 +628,64 @@ export function createApp({ jwtSecret, appOrigin }) {
     }
   });
  
+  // NUEVO: crea un proveedor (solo ADMIN y MANAGER).
+  // Si existía uno eliminado con el mismo nombre, se reactiva con los datos nuevos.
+  api.post("/suppliers", async (req, res) => {
+    if (!requireManager(req, res)) return;
+    const data = parseOrRespond(supplierSchema, req.body, res);
+    if (!data) return;
+    try {
+      const result = await pool.query(
+        `INSERT INTO suppliers (name, tax_id, phone, email) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (name) DO UPDATE
+           SET tax_id = EXCLUDED.tax_id, phone = EXCLUDED.phone, email = EXCLUDED.email, active = TRUE
+           WHERE suppliers.active = FALSE
+         RETURNING id, name, tax_id AS "taxId", phone, email`,
+        [data.name, data.taxId, data.phone, data.email]
+      );
+      // Sin fila devuelta: ya hay un proveedor ACTIVO con ese nombre
+      if (!result.rowCount) throw fail(409, "Ya existe un proveedor activo con ese nombre.");
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
+  // NUEVO: elimina (desactiva) un proveedor. No se borra la fila para conservar el historial
+  // de compras, y se bloquea si todavía hay cuentas por pagar pendientes con ese proveedor.
+  api.delete("/suppliers/:id", async (req, res) => {
+    if (!requireManager(req, res)) return;
+    const supplierId = requireId(req.params.id, res, "proveedor");
+    if (!supplierId) return;
+    try {
+      const pending = await pool.query(
+        `SELECT COUNT(*)::INTEGER AS count
+         FROM accounts_payable ap
+         JOIN purchases p ON p.id = ap.purchase_id
+         WHERE p.supplier_id = $1 AND ap.status <> 'PAID'`,
+        [supplierId]
+      );
+      if (pending.rows[0].count > 0) {
+        throw fail(409, "No se puede eliminar: el proveedor tiene cuentas por pagar pendientes.");
+      }
+      const result = await pool.query(
+        "UPDATE suppliers SET active = FALSE WHERE id = $1 AND active = TRUE",
+        [supplierId]
+      );
+      if (!result.rowCount) throw fail(404, "El proveedor no existe o ya fue eliminado.");
+      res.json({ deleted: true });
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
   api.get("/purchases", async (req, res) => {
     try {
       const branchId = requireId(req.query.branchId, res, "sucursal");
       if (!branchId) return;
       const result = await pool.query(
         `SELECT p.id, p.supplier_invoice AS "supplierInvoice", p.purchased_at AS "purchasedAt",
-                p.due_at AS "dueAt", p.subtotal, p.tax, p.total, s.name AS supplier,
+                p.due_at AS "dueAt", p.subtotal, p.tax, p.total, s.name AS supplier, p.supplier_id AS "supplierId",
                 ap.amount - ap.paid_amount AS outstanding, ap.status
          FROM purchases p
          JOIN suppliers s ON s.id = p.supplier_id
@@ -691,6 +753,60 @@ export function createApp({ jwtSecret, appOrigin }) {
         return { id: purchaseId, subtotal, tax, total };
       });
       res.status(201).json(purchase);
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
+  // NUEVO: elimina una factura de compra (solo ADMIN y MANAGER).
+  // Deshace lo que hizo al registrarse: resta del inventario lo que había sumado y quita su
+  // cuenta por pagar. Todo en una transacción: o se deshace completo, o no se toca nada.
+  api.delete("/purchases/:id", async (req, res) => {
+    if (!requireManager(req, res)) return;
+    const purchaseId = requireId(req.params.id, res, "factura");
+    if (!purchaseId) return;
+ 
+    try {
+      await inTransaction(async (client) => {
+        const purchase = await client.query(
+          "SELECT id, branch_id FROM purchases WHERE id = $1 FOR UPDATE",
+          [purchaseId]
+        );
+        if (!purchase.rowCount) throw fail(404, "La factura no existe o ya fue eliminada.");
+ 
+        // Si ya se abonó algo, borrar la factura dejaría los pagos sin respaldo
+        const payable = await client.query(
+          "SELECT paid_amount FROM accounts_payable WHERE purchase_id = $1 FOR UPDATE",
+          [purchaseId]
+        );
+        if (payable.rows[0] && Number(payable.rows[0].paid_amount) > 0) {
+          throw fail(409, "No se puede eliminar: la factura ya tiene pagos registrados.");
+        }
+ 
+        const items = await client.query(
+          "SELECT ingredient_id, product_id, quantity FROM purchase_items WHERE purchase_id = $1",
+          [purchaseId]
+        );
+        for (const item of items.rows) {
+          const column = item.ingredient_id ? "ingredient_id" : "product_id";
+          const itemId = item.ingredient_id || item.product_id;
+          // Solo resta si alcanza: si lo comprado ya se vendió o se usó, el inventario quedaría negativo
+          const updated = await client.query(
+            `UPDATE inventory_balances SET quantity = quantity - $1, updated_at = NOW()
+             WHERE branch_id = $2 AND ${column} = $3 AND quantity >= $1
+             RETURNING id`,
+            [item.quantity, purchase.rows[0].branch_id, itemId]
+          );
+          if (!updated.rowCount) {
+            throw fail(409, "No se puede eliminar: parte de lo comprado ya se usó o se vendió.");
+          }
+        }
+ 
+        await client.query("DELETE FROM accounts_payable WHERE purchase_id = $1", [purchaseId]);
+        await client.query("DELETE FROM purchase_items WHERE purchase_id = $1", [purchaseId]);
+        await client.query("DELETE FROM purchases WHERE id = $1", [purchaseId]);
+      });
+      res.json({ deleted: true });
     } catch (error) {
       handleError(error, res);
     }
