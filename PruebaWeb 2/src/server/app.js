@@ -56,6 +56,32 @@ const inventoryItemSchema = z.object({
   message: "Indique el precio de venta del producto empacado."
 });
  
+// NUEVO: validación de recetas y de productos nuevos con receta
+const recipeItemsSchema = z.array(z.object({
+  ingredientId: idSchema,
+  quantity: z.coerce.number().positive().max(1_000_000)
+})).min(1, "La receta debe tener al menos un ingrediente.");
+ 
+const hasUniqueIngredients = (items) =>
+  new Set(items.map((item) => item.ingredientId)).size === items.length;
+ 
+const recipeSchema = z.object({
+  items: recipeItemsSchema
+}).refine((recipe) => hasUniqueIngredients(recipe.items), {
+  path: ["items"],
+  message: "No repita el mismo ingrediente en la receta."
+});
+ 
+const newProductSchema = z.object({
+  name: z.string().trim().min(2).max(140),
+  category: z.string().trim().min(2).max(60),
+  price: z.coerce.number().positive().max(100_000),
+  items: recipeItemsSchema
+}).refine((product) => hasUniqueIngredients(product.items), {
+  path: ["items"],
+  message: "No repita el mismo ingrediente en la receta."
+});
+ 
 const payrollSchema = z.object({
   branchId: idSchema,
   periodStart: z.string().date(),
@@ -165,8 +191,8 @@ export function createApp({ jwtSecret, appOrigin }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(helmet());
-  // CAMBIO: se agregó "DELETE" a los métodos permitidos
-  app.use(cors({ origin: appOrigin, methods: ["GET", "POST", "DELETE", "OPTIONS"], allowedHeaders: ["Content-Type", "Authorization"] }));
+  // CAMBIO: se agregaron "PUT" y "DELETE" a los métodos permitidos
+  app.use(cors({ origin: appOrigin, methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], allowedHeaders: ["Content-Type", "Authorization"] }));
   app.use(express.json({ limit: "100kb" }));
  
   const api = express.Router();
@@ -343,6 +369,116 @@ export function createApp({ jwtSecret, appOrigin }) {
          GROUP BY p.id ORDER BY p.category, p.name`
       );
       res.json(result.rows);
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
+  // NUEVO: devuelve la receta de un producto (insumo, unidad base y cantidad por unidad vendida)
+  api.get("/products/:id/recipe", async (req, res) => {
+    try {
+      const productId = requireId(req.params.id, res, "producto");
+      if (!productId) return;
+      const result = await pool.query(
+        `SELECT ri.ingredient_id AS "ingredientId", i.name AS ingredient, i.unit, ri.quantity
+         FROM recipe_items ri
+         JOIN ingredients i ON i.id = ri.ingredient_id
+         WHERE ri.product_id = $1
+         ORDER BY i.name`,
+        [productId]
+      );
+      res.json(result.rows);
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
+  // NUEVO: crea un producto elaborado junto con su receta (solo ADMIN y MANAGER).
+  // Todo en una transacción: o se crea el producto con toda su receta, o no se crea nada.
+  api.post("/products", async (req, res) => {
+    if (!requireManager(req, res)) return;
+    const data = parseOrRespond(newProductSchema, req.body, res);
+    if (!data) return;
+ 
+    try {
+      const product = await inTransaction(async (client) => {
+        const duplicate = await client.query(
+          "SELECT id FROM products WHERE LOWER(name) = LOWER($1)",
+          [data.name]
+        );
+        if (duplicate.rowCount) throw fail(409, "Ya existe un producto con ese nombre.");
+ 
+        const ingredientIds = data.items.map((item) => item.ingredientId);
+        const found = await client.query(
+          "SELECT id FROM ingredients WHERE id = ANY($1::INTEGER[]) AND active = TRUE",
+          [ingredientIds]
+        );
+        if (found.rowCount !== ingredientIds.length) {
+          throw fail(400, "Uno o más ingredientes no están disponibles.");
+        }
+ 
+        // SKU automático: REC-001, REC-002, ...
+        const next = await client.query(
+          `SELECT COALESCE(MAX(SUBSTRING(sku FROM 5)::INTEGER), 0) + 1 AS n
+           FROM products WHERE sku ~ '^REC-[0-9]+$'`
+        );
+        const sku = `REC-${String(next.rows[0].n).padStart(3, "0")}`;
+ 
+        const created = await client.query(
+          `INSERT INTO products (sku, name, category, price, product_type)
+           VALUES ($1, $2, $3, $4, 'RECIPE') RETURNING id`,
+          [sku, data.name, data.category, data.price]
+        );
+        for (const item of data.items) {
+          await client.query(
+            "INSERT INTO recipe_items (product_id, ingredient_id, quantity) VALUES ($1, $2, $3)",
+            [created.rows[0].id, item.ingredientId, item.quantity]
+          );
+        }
+        return { id: created.rows[0].id, sku };
+      });
+      res.status(201).json(product);
+    } catch (error) {
+      handleError(error, res);
+    }
+  });
+ 
+  // NUEVO: reemplaza la receta completa de un producto (solo ADMIN y MANAGER).
+  // Todo ocurre en una transacción: si algo falla, la receta anterior se conserva.
+  api.put("/products/:id/recipe", async (req, res) => {
+    if (!requireManager(req, res)) return;
+    const productId = requireId(req.params.id, res, "producto");
+    if (!productId) return;
+    const data = parseOrRespond(recipeSchema, req.body, res);
+    if (!data) return;
+ 
+    try {
+      await inTransaction(async (client) => {
+        const product = await client.query(
+          `SELECT id FROM products
+           WHERE id = $1 AND product_type = 'RECIPE' AND active = TRUE FOR UPDATE`,
+          [productId]
+        );
+        if (!product.rowCount) throw fail(404, "El producto no existe o no maneja receta.");
+ 
+        const ingredientIds = data.items.map((item) => item.ingredientId);
+        const found = await client.query(
+          "SELECT id FROM ingredients WHERE id = ANY($1::INTEGER[]) AND active = TRUE",
+          [ingredientIds]
+        );
+        if (found.rowCount !== ingredientIds.length) {
+          throw fail(400, "Uno o más ingredientes no están disponibles.");
+        }
+ 
+        await client.query("DELETE FROM recipe_items WHERE product_id = $1", [productId]);
+        for (const item of data.items) {
+          await client.query(
+            "INSERT INTO recipe_items (product_id, ingredient_id, quantity) VALUES ($1, $2, $3)",
+            [productId, item.ingredientId, item.quantity]
+          );
+        }
+      });
+      res.json({ saved: true });
     } catch (error) {
       handleError(error, res);
     }
